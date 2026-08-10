@@ -1,7 +1,6 @@
 # Laravel
 /vendor
 /node_modules
-/.env
 /.env.backup
 /.env.production
 
