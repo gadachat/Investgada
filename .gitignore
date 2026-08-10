@@ -1,0 +1,54 @@
+# Laravel
+/vendor
+/node_modules
+/.env
+/.env.backup
+/.env.production
+
+# Homestead
+/Homestead.json
+/Homestead.yaml
+
+# Vite
+/public/build
+/public/hot
+
+# Logs
+*.log
+/storage/logs/*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+/.idea
+/.vscode
+*.swp
+*.swo
+
+# Laravel specific
+/.phpunit.cache
+/.phpunit.result.cache
+/coverage
+/bootstrap/cache/*.php
+/storage/framework/cache/data/*
+storage/framework/sessions/*
+storage/framework/views/*
+!storage/framework/cache/data/.gitkeep
+!storage/framework/sessions/.gitkeep
+!storage/framework/views/.gitkeep
+!storage/logs/.gitkeep
+
+# npm
+/package-lock.json
+/yarn.lock
+
+# Temporary files
+/tmp
+*.tmp
+
+# Temp audit/test scripts (do not deploy)
+*.py
+test_route_extractor.py
+update.sh

@@ -1,0 +1,41 @@
+<IfModule mod_rewrite.c>
+    <IfModule mod_negotiation.c>
+        Options -MultiViews -Indexes
+    
+# ===== PWA Support =====
+# Allow manifest.json and service worker
+<FilesMatch "\.(json|js)$">
+    Header set Cache-Control "no-cache, must-revalidate"
+</FilesMatch>
+
+# Serve manifest with correct MIME type
+AddType application/manifest+json .json
+
+# Allow service worker at root scope
+<Files "sw.js">
+    Header set Cache-Control "no-cache"
+    Header set Service-Worker-Allowed "/"
+</Files>
+
+# Apple touch icon caching
+<FilesMatch "apple-touch-icon.*\.png$">
+    Header set Cache-Control "public, max-age=604800"
+</FilesMatch>
+
+</IfModule>
+
+    RewriteEngine On
+
+    # Handle Authorization Header
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    # Redirect Trailing Slashes If Not A Folder...
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.*)/$ /$1 [L,R=301]
+
+    # Send Requests To Front Controller...
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^ index.php [L]
+</IfModule>
