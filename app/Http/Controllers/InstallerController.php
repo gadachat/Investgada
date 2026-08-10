@@ -14,6 +14,39 @@ use App\Models\Setting;
 class InstallerController extends Controller
 {
     /**
+     * Ensure .env exists and has a valid APP_KEY for sessions/CSRF.
+     * Called before every installer step.
+     */
+    private function ensureEnv()
+    {
+        $envPath = base_path('.env');
+
+        if (!File::exists($envPath)) {
+            // Copy .env.example if it exists, otherwise create from template
+            if (File::exists(base_path('.env.example'))) {
+                File::copy(base_path('.env.example'), $envPath);
+            } else {
+                File::put($envPath, $this->getEnvTemplate());
+            }
+        }
+
+        // Generate APP_KEY if empty — required for sessions/CSRF to work
+        $env = file_get_contents($envPath);
+        if (!preg_match('/APP_KEY=(.+)/', $env, $m) || empty(trim($m[1]))) {
+            $key = 'base64:' . base64_encode(random_bytes(32));
+            if (preg_match('/^APP_KEY=.*/m', $env)) {
+                $env = preg_replace('/^APP_KEY=.*/m', "APP_KEY={$key}", $env);
+            } else {
+                $env .= "\nAPP_KEY={$key}";
+            }
+            File::put($envPath, $env);
+        }
+
+        // Ensure storage directories exist
+        $this->setPermissions();
+    }
+
+    /**
      * Check if installer should be available.
      */
     private function isInstalled()
@@ -23,7 +56,7 @@ class InstallerController extends Controller
             return false;
         }
         $env = file_get_contents($envPath);
-        // If APP_KEY is set AND DB connection works AND users table exists → installed
+        // If APP_KEY is set AND DB connection works AND users table exists -> installed
         if (!preg_match('/APP_KEY=(.+)/', $env, $m) || empty(trim($m[1]))) {
             return false;
         }
@@ -35,10 +68,42 @@ class InstallerController extends Controller
     }
 
     /**
+     * Read .env file into key-value array.
+     */
+    private function readEnvFile()
+    {
+        $envPath = base_path('.env');
+        if (!File::exists($envPath)) {
+            return [];
+        }
+
+        $lines = file($envPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        $values = [];
+
+        foreach ($lines as $line) {
+            // Skip comments
+            if (str_starts_with($line, '#')) {
+                continue;
+            }
+            // Parse KEY=VALUE
+            if (strpos($line, '=') !== false) {
+                [$key, $value] = explode('=', $line, 2);
+                // Remove quotes
+                $value = trim($value, "\"'");
+                $values[trim($key)] = $value;
+            }
+        }
+
+        return $values;
+    }
+
+    /**
      * Step 1: Welcome & Requirements Check
      */
     public function index()
     {
+        $this->ensureEnv();
+
         if ($this->isInstalled()) {
             return redirect('/')->with('error', 'Platform is already installed.');
         }
@@ -57,6 +122,8 @@ class InstallerController extends Controller
      */
     public function database(Request $request)
     {
+        $this->ensureEnv();
+
         if ($this->isInstalled()) {
             return redirect('/')->with('error', 'Platform is already installed.');
         }
@@ -67,7 +134,6 @@ class InstallerController extends Controller
         }
 
         // Pre-fill from current .env if exists
-        // Uses getenv() instead of env() to remain functional after config:cache
         $envValues = $this->readEnvFile();
         $current = [
             'APP_URL'   => $envValues['APP_URL'] ?? $this->guessUrl(),
@@ -89,6 +155,8 @@ class InstallerController extends Controller
      */
     public function testDatabase(Request $request)
     {
+        $this->ensureEnv();
+
         $request->validate([
             'app_name'  => 'required|string|max:50',
             'app_url'   => 'required|url',
@@ -117,16 +185,6 @@ class InstallerController extends Controller
         // Write .env
         $this->writeEnv($request);
 
-        // Store DB config in session for next step
-        session([
-            'install_db' => [
-                'host' => $request->db_host,
-                'port' => $request->db_port,
-                'name' => $request->db_name,
-                'user' => $request->db_user,
-            ],
-        ]);
-
         return redirect()->route('install.admin');
     }
 
@@ -135,6 +193,8 @@ class InstallerController extends Controller
      */
     public function admin(Request $request)
     {
+        $this->ensureEnv();
+
         if ($this->isInstalled()) {
             return redirect('/')->with('error', 'Platform is already installed.');
         }
@@ -147,6 +207,8 @@ class InstallerController extends Controller
      */
     public function run(Request $request)
     {
+        $this->ensureEnv();
+
         $request->validate([
             'admin_name'     => 'required|string|max:100',
             'admin_email'    => 'required|email|max:150',
@@ -162,7 +224,7 @@ class InstallerController extends Controller
 
         $steps = [];
 
-        // Step A: Generate APP_KEY
+        // Step A: Generate APP_KEY (overwrite the temporary one from ensureEnv)
         try {
             Artisan::call('key:generate', ['--force' => true]);
             $steps[] = ['label' => 'Application Key Generated', 'status' => 'success'];
@@ -173,11 +235,10 @@ class InstallerController extends Controller
         // Step B: Run migrations
         try {
             Artisan::call('migrate', ['--force' => true]);
-            $output = Artisan::output();
             $steps[] = ['label' => 'Database Tables Created', 'status' => 'success', 'detail' => 'All migrations executed'];
         } catch (\Exception $e) {
             $steps[] = ['label' => 'Database Migration', 'status' => 'error', 'message' => $e->getMessage()];
-            return view('installer.complete', compact('steps'))->with('install_error', 'Migration failed.');
+            return view('installer.complete', compact('steps'))->with('install_error', 'Migration failed: ' . $e->getMessage());
         }
 
         // Step C: Create storage symlink
@@ -187,7 +248,7 @@ class InstallerController extends Controller
             }
             $steps[] = ['label' => 'Storage Symlink Created', 'status' => 'success'];
         } catch (\Exception $e) {
-            // Symlink might fail on some shared hosts — create .htaccess fallback
+            // Symlink might fail on some shared hosts -- create .htaccess fallback
             $this->createStorageFallback();
             $steps[] = ['label' => 'Storage Fallback Created (symlink unavailable)', 'status' => 'warning'];
         }
@@ -227,7 +288,7 @@ class InstallerController extends Controller
             $steps[] = ['label' => 'Admin Account Created', 'status' => 'success', 'detail' => $admin->email];
         } catch (\Exception $e) {
             $steps[] = ['label' => 'Admin Account Creation', 'status' => 'error', 'message' => $e->getMessage()];
-            return view('installer.complete', compact('steps'))->with('install_error', 'Admin creation failed.');
+            return view('installer.complete', compact('steps'))->with('install_error', 'Admin creation failed: ' . $e->getMessage());
         }
 
         // Step F: Seed default settings
@@ -279,14 +340,10 @@ class InstallerController extends Controller
             'admin_email'  => $request->admin_email,
         ]));
 
-        $steps[] = ['label' => 'Installation Complete!', 'status' => 'success'];
-
         return view('installer.complete', compact('steps'));
     }
 
-    // =====================================================================
-    // PRIVATE HELPERS
-    // =====================================================================
+    // ====== Private helper methods ======
 
     private function checkRequirements()
     {
@@ -324,6 +381,10 @@ class InstallerController extends Controller
         ];
 
         foreach ($dirs as $name => $path) {
+            // Create dir if missing
+            if (!is_dir($path)) {
+                @mkdir($path, 0755, true);
+            }
             $writable = is_writable($path) || @chmod($path, 0755) && is_writable($path);
             $reqs[] = [
                 'label'   => "Writable: {$name}",
@@ -356,7 +417,7 @@ class InstallerController extends Controller
         if (str_contains($docRoot, 'namecheap') || str_contains($host, 'namecheap')) {
             $hints[] = [
                 'provider' => 'Namecheap',
-                'tip' => 'Your database name and user likely start with your cPanel username prefix (e.g., username_dbname). Check cPanel → MySQL Databases.',
+                'tip' => 'Your database name and user likely start with your cPanel username prefix (e.g., username_dbname). Check cPanel -> MySQL Databases.',
             ];
         }
 
@@ -415,14 +476,13 @@ class InstallerController extends Controller
 
     private function writeEnv(Request $request)
     {
-        $envTemplate = $this->getEnvTemplate();
         $envPath = base_path('.env');
 
-        // Read existing .env or use template
+        // Read existing .env or create from template
         if (File::exists($envPath)) {
             $env = file_get_contents($envPath);
         } else {
-            $env = $envTemplate;
+            $env = $this->getEnvTemplate();
         }
 
         // Update values
@@ -458,7 +518,7 @@ class InstallerController extends Controller
 
         File::put($envPath, $env);
 
-        // Reload config at runtime
+        // Clear config cache so next request picks up new DB settings
         Artisan::call('config:clear');
     }
 
@@ -523,15 +583,6 @@ ENV;
             }
             @chmod($dir, 0755);
         }
-
-        // Create framework subdirectories if they don't exist
-        $subdirs = ['cache/data', 'sessions', 'views'];
-        foreach ($subdirs as $sub) {
-            $path = storage_path("framework/{$sub}");
-            if (!is_dir($path)) {
-                @mkdir($path, 0755, true);
-            }
-        }
     }
 
     private function createStorageFallback()
@@ -542,7 +593,7 @@ ENV;
             @mkdir($storagePublic, 0755, true);
         }
 
-        // Create an index.php that serves files from storage/app/public
+        // Create an .htaccess for the storage directory
         $htaccess = "Options +FollowSymLinks\n";
         file_put_contents($storagePublic . '/.htaccess', $htaccess);
     }
@@ -597,13 +648,13 @@ ENV;
             'social_twitter'           => '',
             'social_facebook'          => '',
             'social_telegram'          => '',
-            'social_instagram'         => '',
+            'social_instagram'          => '',
             'social_youtube'           => '',
             'social_linkedin'          => '',
             'social_discord'           => '',
 
-            // SEO — Meta
-            'seo_meta_title'           => 'APTrades — Crypto, Forex & Investment Platform',
+            // SEO -- Meta
+            'seo_meta_title'           => 'APTrades -- Crypto, Forex & Investment Platform',
             'seo_meta_description'     => 'Next-generation investment platform for crypto, forex, stocks, and bonds. AI-driven analytics, secure wallets, and daily profit sharing.',
             'seo_meta_keywords'        => 'crypto investment, forex trading, bitcoin, ethereum, USDT, investment platform, daily profits, MLM, referral program',
             'seo_og_title'             => '',
@@ -701,7 +752,7 @@ ENV;
 
     private function createHtaccess()
     {
-        // Root .htaccess — routes everything to public/
+        // Root .htaccess -- routes everything to public/
         $rootHtaccess = base_path('.htaccess');
         $content = <<<'HTACCESS'
 <IfModule mod_rewrite.c>
