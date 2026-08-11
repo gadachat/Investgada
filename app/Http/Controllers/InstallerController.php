@@ -265,15 +265,16 @@ class InstallerController extends Controller
         try {
             $admin = User::create([
                 'name'       => $request->admin_name,
+                'username'   => 'admin',
                 'email'      => $request->admin_email,
-                'password'   => Hash::make($request->admin_password),
+                'password'   => $request->admin_password,
                 'role'       => 'admin',
                 'is_admin'   => true,
                 'status'     => 'active',
             ]);
 
             // Create default wallets
-            $walletTypes = ['deposit', 'interest', 'referral', 'matching', 'main'];
+            $walletTypes = ['deposit', 'interest', 'commission', 'bonus', 'withdrawal'];
             foreach ($walletTypes as $type) {
                 DB::table('wallets')->insert([
                     'user_id'   => $admin->id,
@@ -543,7 +544,7 @@ DB_USERNAME=
 DB_PASSWORD=
 
 BROADCAST_DRIVER=log
-CACHE_DRIVER=file
+CACHE_STORE=file
 FILESYSTEM_DISK=local
 QUEUE_CONNECTION=sync
 SESSION_DRIVER=file
@@ -693,8 +694,8 @@ ENV;
                 'description' => 'Perfect for beginners. Start small and learn the ropes.',
                 'min_amount' => 100, 'max_amount' => 5000,
                 'return_rate' => 1.5, 'duration_days' => 30,
-                'profit_share_weight' => 1.0, 'is_active' => true, 'is_featured' => false,
-                'color' => '#10b981', 'icon' => 'fa-seedling', 'sort_order' => 1,
+                'is_active' => true, 'featured' => false,
+                'sort_order' => 1,
                 'created_at' => now(), 'updated_at' => now(),
             ],
             [
@@ -702,8 +703,8 @@ ENV;
                 'description' => 'Balanced risk and reward for steady growth.',
                 'min_amount' => 5000, 'max_amount' => 25000,
                 'return_rate' => 2.5, 'duration_days' => 60,
-                'profit_share_weight' => 1.5, 'is_active' => true, 'is_featured' => false,
-                'color' => '#6366f1', 'icon' => 'fa-medal', 'sort_order' => 2,
+                'is_active' => true, 'featured' => false,
+                'sort_order' => 2,
                 'created_at' => now(), 'updated_at' => now(),
             ],
             [
@@ -711,8 +712,8 @@ ENV;
                 'description' => 'Our most popular package. Diversified across multiple assets.',
                 'min_amount' => 25000, 'max_amount' => 100000,
                 'return_rate' => 3.5, 'duration_days' => 90,
-                'profit_share_weight' => 2.0, 'is_active' => true, 'is_featured' => true,
-                'color' => '#a855f7', 'icon' => 'fa-trophy', 'sort_order' => 3,
+                'is_active' => true, 'featured' => true,
+                'sort_order' => 3,
                 'created_at' => now(), 'updated_at' => now(),
             ],
             [
@@ -720,8 +721,8 @@ ENV;
                 'description' => 'Premium forex-focused portfolio for experienced investors.',
                 'min_amount' => 100000, 'max_amount' => 500000,
                 'return_rate' => 5.0, 'duration_days' => 120,
-                'profit_share_weight' => 3.0, 'is_active' => true, 'is_featured' => false,
-                'color' => '#3b82f6', 'icon' => 'fa-gem', 'sort_order' => 4,
+                'is_active' => true, 'featured' => false,
+                'sort_order' => 4,
                 'created_at' => now(), 'updated_at' => now(),
             ],
         ];
@@ -736,10 +737,10 @@ ENV;
         }
 
         $addresses = [
-            ['currency' => 'BTC', 'network' => 'Bitcoin',   'address' => 'bc1qexample0000000000000000000000', 'is_active' => true],
-            ['currency' => 'ETH', 'network' => 'ERC-20',     'address' => '0xExample0000000000000000000000000000000', 'is_active' => true],
-            ['currency' => 'USDT', 'network' => 'TRC-20',     'address' => 'TExample0000000000000000000000000', 'is_active' => true],
-            ['currency' => 'USDT', 'network' => 'ERC-20',     'address' => '0xExample2222222222222222222222222222', 'is_active' => true],
+            ['coin' => 'BTC', 'network' => 'Bitcoin',   'address' => 'bc1qexample0000000000000000000000', 'is_active' => true],
+            ['coin' => 'ETH', 'network' => 'ERC-20',    'address' => '0xExample0000000000000000000000000000000', 'is_active' => true],
+            ['coin' => 'USDT', 'network' => 'TRC-20',    'address' => 'TExample0000000000000000000000000', 'is_active' => true],
+            ['coin' => 'USDT', 'network' => 'ERC-20',    'address' => '0xExample2222222222222222222222222222', 'is_active' => true],
         ];
 
         foreach ($addresses as $addr) {
