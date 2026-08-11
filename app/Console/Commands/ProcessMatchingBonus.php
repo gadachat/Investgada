@@ -122,18 +122,21 @@ class ProcessMatchingBonus extends Command
                     ['user_id' => $user->id, 'type' => 'bonus'],
                     ['balance' => 0, 'currency' => 'USD']
                 );
-                $wallet->increment('balance', $bonus);
+                $wallet->credit($bonus);
 
                 // Record transaction
                 Transaction::create([
-                    'user_id'    => $user->id,
-                    'type'       => 'matching_bonus',
-                    'amount'     => $bonus,
-                    'wallet_type'=> 'matching',
-                    'status'     => 'completed',
-                    'reference'  => 'MATCH-' . $user->id . '-' . $today->format('Ymd'),
-                    'description'=> "Binary matching bonus ({$rank->name} rank) — Left: \${$leftVolume}, Right: \${$rightVolume}",
-                    'metadata'   => json_encode([
+                    'user_id'       => $user->id,
+                    'wallet_id'     => $wallet->id,
+                    'type'          => 'matching_bonus',
+                    'direction'     => 'credit',
+                    'amount'        => $bonus,
+                    'balance_after' => $wallet->fresh()->balance,
+                    'currency'      => 'USD',
+                    'status'        => 'completed',
+                    'reference'     => 'MATCH-' . $user->id . '-' . $today->format('Ymd'),
+                    'description'   => "Binary matching bonus ({$rank->name} rank) — Left: \${$leftVolume}, Right: \${$rightVolume}",
+                    'metadata'      => json_encode([
                         'left_volume'  => $leftVolume,
                         'right_volume' => $rightVolume,
                         'match_volume' => $cappedVolume,

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 
 class Wallet extends Model
 {
@@ -31,35 +32,41 @@ class Wallet extends Model
         return $this->increment('balance', $amount) > 0;
     }
 
-    // Debit funds from this wallet (returns false if insufficient)
+    // Debit funds from this wallet (returns false if insufficient) — atomic
     public function debit(float $amount): bool
     {
-        if ($this->balance < $amount) {
+        if ((float) $this->balance < $amount) {
             return false;
         }
-        return $this->decrement('balance', $amount) > 0;
+        return DB::transaction(function () use ($amount) {
+            return $this->decrement('balance', $amount) > 0;
+        });
     }
 
-    // Lock funds (move from balance to locked_balance)
+    // Lock funds (move from balance to locked_balance) — atomic
     public function lock(float $amount): bool
     {
-        if ($this->balance < $amount) {
+        if ((float) $this->balance < $amount) {
             return false;
         }
-        $this->decrement('balance', $amount);
-        $this->increment('locked_balance', $amount);
-        return true;
+        return DB::transaction(function () use ($amount) {
+            $this->decrement('balance', $amount);
+            $this->increment('locked_balance', $amount);
+            return true;
+        });
     }
 
-    // Unlock funds (move from locked_balance back to balance)
+    // Unlock funds (move from locked_balance back to balance) — atomic
     public function unlock(float $amount): bool
     {
-        if ($this->locked_balance < $amount) {
+        if ((float) $this->locked_balance < $amount) {
             return false;
         }
-        $this->decrement('locked_balance', $amount);
-        $this->increment('balance', $amount);
-        return true;
+        return DB::transaction(function () use ($amount) {
+            $this->decrement('locked_balance', $amount);
+            $this->increment('balance', $amount);
+            return true;
+        });
     }
 
     // Available balance (not locked)

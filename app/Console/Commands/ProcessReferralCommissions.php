@@ -95,7 +95,7 @@ class ProcessReferralCommissions extends Command
                     ['user_id' => $sponsor->id, 'type' => 'commission'],
                     ['balance' => 0, 'currency' => 'USD']
                 );
-                $wallet->increment('balance', $commission);
+                $wallet->credit($commission);
 
                 // Record transaction
                 Transaction::create([
