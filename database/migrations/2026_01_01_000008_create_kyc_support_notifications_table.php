@@ -76,10 +76,13 @@ return new class extends Migration
             $table->string('type', 50);
             $table->string('title');
             $table->text('message');
+            $table->string('link')->nullable();
             $table->json('data')->nullable();
+            $table->boolean('is_read')->default(false);
             $table->timestamp('read_at')->nullable();
             $table->timestamps();
             $table->index(['user_id', 'read_at']);
+            $table->index(['user_id', 'is_read']);
         });
 
         // Admin activity log

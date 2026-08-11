@@ -117,7 +117,7 @@ class ProcessReferralCommissions extends Command
                 // Update referral record
                 Referral::where('referred_id', $user->id)->update([
                     'commission_earned' => DB::raw('commission_earned + ' . $commission),
-                    'status'            => 'earned',
+                    'status'            => 'active',
                 ]);
 
                 // Update sponsor's total referral earnings

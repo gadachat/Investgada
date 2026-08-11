@@ -94,7 +94,7 @@ class ReportController extends Controller
         ];
 
         // Referral stats
-        $directReferrals = DB::table('users')->where('referred_by', $user->id)->count();
+        $directReferrals = DB::table('users')->where('sponsor_id', $user->id)->count();
         $referralEarnings = DB::table('transactions')
             ->where('user_id', $user->id)
             ->whereIn('type', ['referral_commission', 'matching_bonus'])

@@ -64,7 +64,7 @@ class CheckRankAdvancement extends Command
                 // Check minimum direct referrals
                 if ($rank->min_direct_referrals > 0) {
                     $directCount = DB::table('referrals')
-                        ->where('sponsor_id', $user->id)
+                        ->where('referrer_id', $user->id)
                         ->where('status', 'active')
                         ->count();
                     if ($directCount < $rank->min_direct_referrals) {
@@ -163,7 +163,7 @@ class CheckRankAdvancement extends Command
     {
         // Direct referrals' investments
         $directReferrals = DB::table('referrals')
-            ->where('sponsor_id', $userId)
+            ->where('referrer_id', $userId)
             ->where('status', 'active')
             ->pluck('referred_id');
 

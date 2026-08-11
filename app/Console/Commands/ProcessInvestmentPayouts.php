@@ -150,7 +150,7 @@ class ProcessInvestmentPayouts extends Command
                         );
                         $wallet->increment('balance', $principal);
 
-                        $inv->update(['status' => 'completed', 'end_date' => now()]);
+                        $inv->update(['status' => 'completed', 'matures_at' => $inv->matures_at]);
 
                         Transaction::create([
                             'user_id'    => $inv->user_id,
