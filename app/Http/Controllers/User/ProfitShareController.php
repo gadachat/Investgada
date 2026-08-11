@@ -65,9 +65,9 @@ class ProfitShareController extends Controller
                 'package_name' => $pkg->name ?? 'Unknown',
                 'category' => $pkg->category ?? 'unknown',
                 'amount' => $inv->amount,
-                'weight' => $pkg->profit_share_weight ?? 1.0,
-                'weighted' => $inv->amount * ($pkg->profit_share_weight ?? 1.0),
-                'start_date' => $inv->start_date,
+                'weight' => 1.0,
+                'weighted' => $inv->amount * (1.0),
+                'start_date' => $inv->activated_at,
             ];
         });
 

@@ -28,7 +28,7 @@ class BinaryController extends Controller
         // Matching bonus history
         $matchingHistory = Transaction::where('user_id', $user->id)
             ->where('type', 'matching_bonus')
-            ->orderBy('created_date', 'desc')
+            ->orderBy('created_at', 'desc')
             ->limit(20)
             ->get();
 
@@ -299,12 +299,12 @@ class BinaryController extends Controller
     {
         $earnings = Transaction::where('user_id', $userId)
             ->where('type', 'matching_bonus')
-            ->whereBetween('created_date', [$cycle['start'], $cycle['end']])
+            ->whereBetween('created_at', [$cycle['start'], $cycle['end']])
             ->sum('amount');
 
         $matchedVolume = Transaction::where('user_id', $userId)
             ->where('type', 'matching_bonus')
-            ->whereBetween('created_date', [$cycle['start'], $cycle['end']])
+            ->whereBetween('created_at', [$cycle['start'], $cycle['end']])
             ->sum('metadata->matched_volume');
 
         return [

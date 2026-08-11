@@ -84,10 +84,10 @@ class RankController extends Controller
             ->sum('amount');
 
         // Direct referrals count
-        $directReferrals = User::where('referred_by', $user->id)->count();
+        $directReferrals = User::where('sponsor_id', $user->id)->count();
 
         // Active direct referrals (with at least one investment)
-        $activeDirectReferrals = User::where('referred_by', $user->id)
+        $activeDirectReferrals = User::where('sponsor_id', $user->id)
             ->whereHas('investments', function ($q) {
                 $q->where('status', 'active');
             })
@@ -208,7 +208,7 @@ class RankController extends Controller
         $total = (float) ($user->total_invested ?? 0);
 
         // Recursively get downline investment volume
-        $directSponsored = User::where('referred_by', $user->id)->get();
+        $directSponsored = User::where('sponsor_id', $user->id)->get();
         foreach ($directSponsored as $downline) {
             $total += $this->calculateTeamVolume($downline);
         }
@@ -221,8 +221,8 @@ class RankController extends Controller
      */
     private function countDownline(User $user): int
     {
-        $count = User::where('referred_by', $user->id)->count();
-        $directSponsored = User::where('referred_by', $user->id)->get();
+        $count = User::where('sponsor_id', $user->id)->count();
+        $directSponsored = User::where('sponsor_id', $user->id)->get();
         foreach ($directSponsored as $downline) {
             $count += $this->countDownline($downline);
         }
