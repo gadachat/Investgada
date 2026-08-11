@@ -33,10 +33,13 @@ class ProcessInvestmentPayouts extends Command
 
         // Find active investments that are due for a payout today
         $investments = Investment::where('status', 'active')
-            ->whereDate('start_date', '<=', $today)
-            ->whereRaw('DATEDIFF(NOW(), start_date) <= duration_days')
+            ->whereNotNull('activated_at')
+            ->where('activated_at', '<=', $today)
+            ->where(function ($q) use ($today) {
+                $q->whereNull('next_payout_at')->orWhere('next_payout_at', '<=', $today);
+            })
             ->whereDoesntHave('payouts', function ($q) use ($today) {
-                $q->whereDate('created_at', $today);
+                $q->whereDate('payout_at', $today);
             })
             ->with('package', 'user')
             ->get();
@@ -60,8 +63,9 @@ class ProcessInvestmentPayouts extends Command
                 continue;
             }
 
-            // Calculate daily profit: (amount * return_rate / 100) / duration_days
-            $dailyProfit = ($investment->amount * $package->return_rate / 100) / $package->duration_days;
+            // Calculate per-cycle profit: amount * return_rate / 100
+            // return_rate is the yield per cycle (e.g., 2% daily, 10% weekly)
+            $dailyProfit = ($investment->amount * $package->return_rate / 100);
             $dailyProfit = round($dailyProfit, 2);
 
             if ($dailyProfit <= 0) {
@@ -78,38 +82,49 @@ class ProcessInvestmentPayouts extends Command
             }
 
             DB::transaction(function () use ($investment, $dailyProfit, $package, $today, &$processed, &$totalPaid) {
+                // Calculate cycle number
+                $cycleNumber = $investment->payouts()->count() + 1;
+
                 // Create payout record
                 InvestmentPayout::create([
                     'investment_id' => $investment->id,
                     'user_id'       => $investment->user_id,
                     'amount'        => $dailyProfit,
-                    'type'          => 'daily_profit',
-                    'payout_date'   => $today,
-                    'status'        => 'paid',
+                    'cycle_number'  => $cycleNumber,
+                    'payout_at'     => $today,
                 ]);
 
-                // Credit the user's earning wallet
+                // Credit the user's interest wallet
                 $wallet = Wallet::firstOrCreate(
-                    ['user_id' => $investment->user_id, 'type' => 'earning'],
+                    ['user_id' => $investment->user_id, 'type' => 'interest'],
                     ['balance' => 0, 'currency' => 'USD']
                 );
-                $wallet->increment('balance', $dailyProfit);
+                $wallet->credit($dailyProfit);
 
                 // Record transaction
                 Transaction::create([
-                    'user_id'    => $investment->user_id,
-                    'type'       => 'investment_profit',
-                    'amount'     => $dailyProfit,
-                    'wallet_type'=> 'earning',
-                    'status'     => 'completed',
-                    'reference'  => 'INV-' . $investment->id . '-DAILY-' . $today->format('Ymd'),
-                    'description'=> "Daily profit from {$package->name} package",
-                    'metadata'   => json_encode([
+                    'user_id'       => $investment->user_id,
+                    'wallet_id'     => $wallet->id,
+                    'type'          => 'investment_profit',
+                    'direction'     => 'credit',
+                    'amount'        => $dailyProfit,
+                    'balance_after' => $wallet->fresh()->balance,
+                    'currency'      => 'USD',
+                    'status'        => 'completed',
+                    'reference'      => 'INV-' . $investment->id . '-DAILY-' . $today->format('Ymd'),
+                    'description'   => "Daily profit from {$package->name} package",
+                    'metadata'      => json_encode([
                         'investment_id' => $investment->id,
                         'package'       => $package->name,
-                        'day'           => $investment->start_date->diffInDays($today) + 1,
-                        'total_days'     => $package->duration_days,
+                        'cycle'         => $cycleNumber,
                     ]),
+                ]);
+
+                // Update investment tracking
+                $investment->update([
+                    'earned_so_far' => $investment->earned_so_far + $dailyProfit,
+                    'last_payout_at' => $today,
+                    'next_payout_at' => Carbon::now()->addDays($package->cycle_days),
                 ]);
 
                 // Update user's total earned
@@ -131,42 +146,48 @@ class ProcessInvestmentPayouts extends Command
 
         // Check for matured investments (completed their duration)
         $matured = Investment::where('status', 'active')
-            ->whereRaw('DATEDIFF(NOW(), start_date) >= duration_days')
+            ->whereNotNull('matures_at')
+            ->where('matures_at', '<=', now())
             ->get();
 
         if ($matured->isNotEmpty()) {
             $this->info("\n--- Maturing Investments ---");
             foreach ($matured as $inv) {
-                $this->line("  → Investment #{$inv->id} has completed its duration. Marking as completed.");
+                $pkg = $inv->package;
+                $this->line("  → Investment #{$inv->id} has completed. Marking as completed.");
 
                 if (!$dryRun) {
-                    // Return the principal to the user's main wallet
-                    $principal = $inv->amount;
+                    DB::transaction(function () use ($inv, $pkg) {
+                        // Only return principal if the package allows it
+                        if ($pkg && $pkg->principal_return) {
+                            $principal = (float) $inv->amount;
+                            $wallet = Wallet::firstOrCreate(
+                                ['user_id' => $inv->user_id, 'type' => 'deposit'],
+                                ['balance' => 0, 'currency' => 'USD']
+                            );
+                            $wallet->credit($principal);
 
-                    DB::transaction(function () use ($inv, $principal) {
-                        $wallet = Wallet::firstOrCreate(
-                            ['user_id' => $inv->user_id, 'type' => 'main'],
-                            ['balance' => 0, 'currency' => 'USD']
-                        );
-                        $wallet->increment('balance', $principal);
+                            Transaction::create([
+                                'user_id'       => $inv->user_id,
+                                'wallet_id'     => $wallet->id,
+                                'type'          => 'principal_return',
+                                'direction'     => 'credit',
+                                'amount'        => $principal,
+                                'balance_after' => $wallet->fresh()->balance,
+                                'currency'      => 'USD',
+                                'status'        => 'completed',
+                                'reference'      => 'PRINCIPAL-' . $inv->id,
+                                'description'   => 'Investment principal returned',
+                            ]);
+                        }
 
-                        $inv->update(['status' => 'completed', 'matures_at' => $inv->matures_at]);
-
-                        Transaction::create([
-                            'user_id'    => $inv->user_id,
-                            'type'       => 'principal_return',
-                            'amount'     => $principal,
-                            'wallet_type'=> 'main',
-                            'status'     => 'completed',
-                            'reference'  => 'PRINCIPAL-' . $inv->id,
-                            'description'=> 'Investment principal returned',
-                        ]);
+                        $inv->update(['status' => 'completed']);
 
                         Notification::create([
                             'user_id'  => $inv->user_id,
                             'type'     => 'investment',
                             'title'    => 'Investment Completed',
-                            'message'  => "Your investment of \${$principal} has completed. Principal returned to your main wallet.",
+                            'message'  => "Your investment has completed." . ($pkg && $pkg->principal_return ? " Principal returned to your deposit wallet." : ""),
                         ]);
                     });
                 }

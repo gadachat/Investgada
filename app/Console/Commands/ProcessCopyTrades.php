@@ -169,13 +169,17 @@ class ProcessCopyTrades extends Command
 
         // Create transaction record
         Transaction::create([
-            'user_id'     => $sub->user_id,
-            'type'        => 'copy_trade',
-            'amount'      => abs($profit),
-            'status'      => 'completed',
-            'reference'   => 'CT-' . strtoupper(Str::random(10)),
-            'description' => "Copy trade: {$master->title} — " . ($isWin ? 'Profit' : 'Loss'),
-            'metadata'    => json_encode([
+            'user_id'       => $sub->user_id,
+            'wallet_id'     => null,
+            'type'          => 'copy_trade',
+            'direction'     => $profit >= 0 ? 'credit' : 'debit',
+            'amount'        => abs($profit),
+            'balance_after' => null,
+            'currency'      => 'USD',
+            'status'        => 'completed',
+            'reference'     => 'CT-' . strtoupper(Str::random(10)),
+            'description'   => "Copy trade: {$master->title} — " . ($isWin ? 'Profit' : 'Loss'),
+            'metadata'      => json_encode([
                 'master_trader_id' => $master->id,
                 'master_name'      => $master->user->name,
                 'is_win'            => $isWin,

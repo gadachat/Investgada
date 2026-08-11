@@ -110,19 +110,22 @@ class CheckRankAdvancement extends Command
                     // If there's a salary bonus, credit it
                     if ($newRank->salary_bonus > 0) {
                         $wallet = \App\Models\Wallet::firstOrCreate(
-                            ['user_id' => $user->id, 'type' => 'main'],
+                            ['user_id' => $user->id, 'type' => 'deposit'],
                             ['balance' => 0, 'currency' => 'USD']
                         );
-                        $wallet->increment('balance', $newRank->salary_bonus);
+                        $wallet->credit($newRank->salary_bonus);
 
                         \App\Models\Transaction::create([
-                            'user_id'    => $user->id,
-                            'type'       => 'rank_bonus',
-                            'amount'     => $newRank->salary_bonus,
-                            'wallet_type'=> 'main',
-                            'status'     => 'completed',
-                            'reference'  => 'RANK-' . $user->id . '-' . $newRank->id,
-                            'description'=> "{$newRank->name} rank promotion bonus",
+                            'user_id'       => $user->id,
+                            'wallet_id'     => $wallet->id,
+                            'type'          => 'rank_bonus',
+                            'direction'     => 'credit',
+                            'amount'        => $newRank->salary_bonus,
+                            'balance_after' => $wallet->fresh()->balance,
+                            'currency'      => 'USD',
+                            'status'        => 'completed',
+                            'reference'     => 'RANK-' . $user->id . '-' . $newRank->id,
+                            'description'   => "{$newRank->name} rank promotion bonus",
                         ]);
                     }
 

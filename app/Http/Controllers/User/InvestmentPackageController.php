@@ -11,6 +11,7 @@ use App\Models\Transaction;
 use App\Services\CommissionEngine;
 use App\Models\FeatureSetting;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class InvestmentPackageController extends Controller
@@ -89,45 +90,56 @@ class InvestmentPackageController extends Controller
         // Calculate expected return
         $expectedReturn = $package->expectedReturn($request->amount);
 
-        // Create investment
-        $investment = $investment = Investment::create([
-            'reference'       => 'INV-' . strtoupper(Str::random(12)),
-            'user_id'         => $user->id,
-            'package_id'       => $package->id,
-            'amount'          => $request->amount,
-            'expected_return'  => $expectedReturn,
-            'earned_so_far'    => 0,
-            'status'           => 'active',
-            'activated_at'     => now(),
-            'matures_at'       => now()->addDays($package->duration_days),
-            'last_payout_at'   => now(),
-            'next_payout_at'   => now()->addDays($package->cycle_days),
-        ]);
+        DB::transaction(function () use ($request, $user, $wallet, $package, $expectedReturn) {
+            // Lock wallet row for safe balance check
+            $lockedWallet = Wallet::where('user_id', $user->id)
+                ->where('type', 'deposit')
+                ->lockForUpdate()
+                ->first();
 
-        // Debit deposit wallet
-        $wallet->debit($request->amount);
+            if (!$lockedWallet || $lockedWallet->balance < $request->amount) {
+                throw new \Exception('Insufficient balance in your deposit wallet.');
+            }
 
-        // Record transaction
-        Transaction::create([
-            'reference'     => 'TXN-' . strtoupper(Str::random(12)),
-            'user_id'       => $user->id,
-            'wallet_id'     => $wallet->id,
-            'type'          => 'investment',
-            'direction'     => 'debit',
-            'amount'        => $request->amount,
-            'balance_after' => $wallet->fresh()->balance,
-            'currency'      => 'USD',
-            'description'   => 'Investment in ' . $package->name . ' (' . $package->category . ')',
-            'metadata'      => ['investment_id' => $investment->id, 'package_id' => $package->id],
-            'status'        => 'completed',
-        ]);
+            // Create investment
+            $investment = Investment::create([
+                'reference'       => 'INV-' . strtoupper(Str::random(12)),
+                'user_id'         => $user->id,
+                'package_id'       => $package->id,
+                'amount'          => $request->amount,
+                'expected_return'  => $expectedReturn,
+                'earned_so_far'    => 0,
+                'status'           => 'active',
+                'activated_at'     => now(),
+                'matures_at'       => now()->addDays($package->duration_days),
+                'last_payout_at'   => now(),
+                'next_payout_at'   => now()->addDays($package->cycle_days),
+            ]);
 
-        // Update binary tree volume
-        $this->updateBinaryVolume($user, $request->amount);
+            // Debit deposit wallet (check return value)
+            if (!$lockedWallet->debit($request->amount)) {
+                throw new \Exception('Failed to debit wallet — insufficient funds.');
+            }
 
-        // Process all commissions via the Commission Engine
-        $engine = new CommissionEngine();
-        $engine->onInvestmentActivated($user->id, $request->amount, $investment->id);
+            // Record transaction
+            Transaction::create([
+                'reference'     => 'TXN-' . strtoupper(Str::random(12)),
+                'user_id'       => $user->id,
+                'wallet_id'     => $lockedWallet->id,
+                'type'          => 'investment',
+                'direction'     => 'debit',
+                'amount'        => $request->amount,
+                'balance_after' => $lockedWallet->fresh()->balance,
+                'currency'      => 'USD',
+                'description'   => 'Investment in ' . $package->name . ' (' . $package->category . ')',
+                'metadata'      => ['investment_id' => $investment->id, 'package_id' => $package->id],
+                'status'        => 'completed',
+            ]);
+
+            // Process all commissions via the Commission Engine (which also updates binary volume)
+            $engine = new CommissionEngine();
+            $engine->onInvestmentActivated($user->id, $request->amount, $investment->id);
+        });
 
         return redirect()->route('dashboard.investments.index')
             ->with('success', 'Investment of $' . number_format($request->amount, 2) . ' activated successfully!');

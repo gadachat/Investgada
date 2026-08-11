@@ -31,7 +31,7 @@ class DepositController extends Controller
         $web3Enabled = PlatformSetting::get('web3_enabled', 'true') === 'true';
 
         $recentDeposits = Deposit::where('user_id', $user->id)
-            ->orderBy('created_date', 'desc')
+            ->orderBy('created_at', 'desc')
             ->limit(5)
             ->get();
 

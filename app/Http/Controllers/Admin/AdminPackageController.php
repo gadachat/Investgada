@@ -80,12 +80,24 @@ class AdminPackageController extends Controller
             'total_return_cap' => 'nullable|numeric|min:0',
         ]);
 
-        $package->update($request->only([
-            'name', 'description', 'category', 'type', 'min_amount', 'max_amount',
-            'return_rate', 'return_type', 'duration_days', 'cycle_days',
-            'total_return_cap', 'principal_return', 'compounding', 'is_active',
-            'featured', 'sort_order',
-        ]));
+        $package->update([
+            'name'             => $request->name,
+            'description'      => $request->description,
+            'category'         => $request->category,
+            'type'             => $request->type,
+            'min_amount'       => $request->min_amount,
+            'max_amount'       => $request->max_amount,
+            'return_rate'      => $request->return_rate,
+            'return_type'      => $request->return_type,
+            'duration_days'    => $request->duration_days,
+            'cycle_days'       => $request->cycle_days,
+            'total_return_cap' => $request->total_return_cap ?? 0,
+            'principal_return' => $request->boolean('principal_return'),
+            'compounding'      => $request->boolean('compounding'),
+            'is_active'        => $request->boolean('is_active', true),
+            'featured'         => $request->boolean('featured'),
+            'sort_order'       => $request->integer('sort_order', 0),
+        ]);
 
         return redirect()->route('admin.packages.index')->with('success', 'Package updated successfully.');
     }

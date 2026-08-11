@@ -13,6 +13,7 @@ use App\Models\FeatureSetting;
 use App\Models\Web3Wallet;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 
 class WithdrawalController extends Controller
 {
@@ -113,12 +114,6 @@ class WithdrawalController extends Controller
             'bank_country'       => 'nullable|string|max:80',
         ]);
 
-        $wallet = $user->wallet('withdrawal');
-
-        if (!$wallet || $wallet->balance < $request->amount) {
-            return back()->with('error', 'Insufficient balance in withdrawal wallet. Available: $' . number_format($wallet?->balance ?? 0, 2));
-        }
-
         // Resolve withdrawal destination
         $walletAddress = $request->wallet_address;
         $network = $request->network;
@@ -137,48 +132,59 @@ class WithdrawalController extends Controller
             return back()->with('error', 'Please enter a destination wallet address.');
         }
 
+        $method = $request->method === 'wallet' ? 'crypto' : $request->method;
         $fee = round($request->amount * ($feePercent / 100), 2);
         $netAmount = $request->amount - $fee;
 
-        // Lock the funds
-        $wallet->lock($request->amount);
+        DB::transaction(function () use ($user, $request, $fee, $netAmount, $walletAddress, $network, $method) {
+            // Lock wallet row for safe balance check
+            $wallet = Wallet::where('user_id', $user->id)
+                ->where('type', 'withdrawal')
+                ->lockForUpdate()
+                ->first();
 
-        $method = $request->method === 'wallet' ? 'crypto' : $request->method;
+            if (!$wallet || $wallet->balance < $request->amount) {
+                throw new \Exception('Insufficient balance in withdrawal wallet. Available: $' . number_format($wallet?->balance ?? 0, 2));
+            }
 
-        $withdrawal = Withdrawal::create([
-            'reference'          => 'WDR-' . strtoupper(Str::random(12)),
-            'user_id'            => $user->id,
-            'method'             => $method,
-            'currency'           => 'USD',
-            'amount'             => $request->amount,
-            'fee'                => $fee,
-            'net_amount'         => $netAmount,
-            'wallet_address'     => $walletAddress,
-            'network'            => $network,
-            'bank_account_name'  => $request->bank_account_name,
-            'bank_account_number'=> $request->bank_account_number,
-            'bank_name'          => $request->bank_name,
-            'bank_country'       => $request->bank_country,
-            'status'             => 'pending',
-        ]);
+            // Lock the funds
+            $wallet->lock($request->amount);
 
-        // Record transaction
-        Transaction::create([
-            'reference'     => 'TXN-' . strtoupper(Str::random(12)),
-            'user_id'       => $user->id,
-            'wallet_id'     => $wallet->id,
-            'type'          => 'withdrawal',
-            'direction'     => 'debit',
-            'amount'        => $request->amount,
-            'balance_after' => $wallet->fresh()->balance,
-            'currency'      => 'USD',
-            'description'   => 'Withdrawal request — ' . $method . ' (' . $withdrawal->reference . ')',
-            'metadata'      => ['withdrawal_id' => $withdrawal->id],
-            'status'        => 'pending',
-        ]);
+            $withdrawal = Withdrawal::create([
+                'reference'          => 'WDR-' . strtoupper(Str::random(12)),
+                'user_id'            => $user->id,
+                'method'             => $method,
+                'currency'           => 'USD',
+                'amount'             => $request->amount,
+                'fee'                => $fee,
+                'net_amount'         => $netAmount,
+                'wallet_address'     => $walletAddress,
+                'network'            => $network,
+                'bank_account_name'  => $request->bank_account_name,
+                'bank_account_number'=> $request->bank_account_number,
+                'bank_name'          => $request->bank_name,
+                'bank_country'       => $request->bank_country,
+                'status'             => 'pending',
+            ]);
 
-        return redirect()->route('dashboard.withdrawal.create')
-            NotifyService::withdrawalRequested($user, $request->amount, $request->method);
+            // Record transaction
+            Transaction::create([
+                'reference'     => 'TXN-' . strtoupper(Str::random(12)),
+                'user_id'       => $user->id,
+                'wallet_id'     => $wallet->id,
+                'type'          => 'withdrawal',
+                'direction'     => 'debit',
+                'amount'        => $request->amount,
+                'balance_after' => $wallet->fresh()->balance,
+                'currency'      => 'USD',
+                'description'   => 'Withdrawal request — ' . $method . ' (' . $withdrawal->reference . ')',
+                'metadata'      => ['withdrawal_id' => $withdrawal->id],
+                'status'        => 'pending',
+            ]);
+        });
+
+        // Send notification
+        NotifyService::withdrawalRequested($user, $request->amount, $method);
 
         return redirect()->route('dashboard.withdrawal.create')->with('success', 'Withdrawal request of $' . number_format($request->amount, 2) . ' submitted. You will receive $' . number_format($netAmount, 2) . ' after fees. Processing time: ' . PlatformSetting::get('withdrawal_processing_hours', 0) . ' hours.');
     }

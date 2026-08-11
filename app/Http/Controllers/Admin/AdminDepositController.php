@@ -10,6 +10,7 @@ use App\Models\Transaction;
 use App\Models\PlatformSetting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 
 class AdminDepositController extends Controller
 {
@@ -57,30 +58,32 @@ class AdminDepositController extends Controller
             ]);
         }
 
-        // Credit wallet
-        $wallet->credit($deposit->net_amount > 0 ? $deposit->net_amount : $deposit->amount);
+        DB::transaction(function () use ($deposit, $user, $wallet, $request) {
+            // Credit wallet
+            $wallet->credit($deposit->net_amount > 0 ? $deposit->net_amount : $deposit->amount);
 
-        // Record transaction
-        Transaction::create([
-            'reference'     => 'TXN-' . strtoupper(Str::random(12)),
-            'user_id'       => $user->id,
-            'wallet_id'     => $wallet->id,
-            'type'          => 'deposit',
-            'direction'     => 'credit',
-            'amount'        => $deposit->amount,
-            'balance_after' => $wallet->fresh()->balance,
-            'currency'      => $deposit->currency,
-            'description'   => 'Deposit confirmed — ' . $deposit->method . ' (' . $deposit->reference . ')',
-            'metadata'      => ['deposit_id' => $deposit->id],
-            'status'        => 'completed',
-        ]);
+            // Record transaction
+            Transaction::create([
+                'reference'     => 'TXN-' . strtoupper(Str::random(12)),
+                'user_id'       => $user->id,
+                'wallet_id'     => $wallet->id,
+                'type'          => 'deposit',
+                'direction'     => 'credit',
+                'amount'        => $deposit->amount,
+                'balance_after' => $wallet->fresh()->balance,
+                'currency'      => $deposit->currency,
+                'description'   => 'Deposit confirmed — ' . $deposit->method . ' (' . $deposit->reference . ')',
+                'metadata'      => ['deposit_id' => $deposit->id],
+                'status'        => 'completed',
+            ]);
 
-        $deposit->update([
-            'status'      => 'confirmed',
-            'approved_by'  => auth()->id(),
-            'approved_at'  => now(),
-            'admin_note'   => $request->admin_note,
-        ]);
+            $deposit->update([
+                'status'      => 'confirmed',
+                'approved_by'  => auth()->id(),
+                'approved_at'  => now(),
+                'admin_note'   => $request->admin_note,
+            ]);
+        });
 
         return back()->with('success', 'Deposit of $' . number_format($deposit->amount, 2) . ' approved for ' . $user->name);
     }

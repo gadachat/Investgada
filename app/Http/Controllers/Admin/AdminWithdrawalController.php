@@ -8,6 +8,7 @@ use App\Models\Withdrawal;
 use App\Models\Wallet;
 use App\Models\Transaction;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class AdminWithdrawalController extends Controller
 {
@@ -45,14 +46,17 @@ class AdminWithdrawalController extends Controller
 
         $request->validate(['admin_note' => 'nullable|string']);
 
-        $withdrawal->update([
-            'status'     => 'processing',
-            'approved_by' => auth()->id(),
-            'approved_at' => now(),
-            'admin_note'  => $request->admin_note,
-        ]);
+        DB::transaction(function () use ($withdrawal, $request) {
+            $withdrawal->update([
+                'status'     => 'processing',
+                'approved_by' => auth()->id(),
+                'approved_at' => now(),
+                'admin_note'  => $request->admin_note,
+            ]);
+        });
 
-        return back()NotifyService::withdrawalProcessed($withdrawal->user, $withdrawal->amount, $withdrawal->method);
+        // Send notification
+        NotifyService::withdrawalProcessed($withdrawal->user, $withdrawal->amount, $withdrawal->method);
 
         return redirect()->back()->with('success', 'Withdrawal approved and marked as processing.');
     }
@@ -99,7 +103,8 @@ class AdminWithdrawalController extends Controller
             'admin_note'  => $request->admin_note,
         ]);
 
-        return back()NotifyService::withdrawalRejected($withdrawal->user, $withdrawal->amount, $withdrawal->reason ?? 'Not specified');
+        // Send notification
+        NotifyService::withdrawalRejected($withdrawal->user, $withdrawal->amount, $withdrawal->reason ?? 'Not specified');
 
         return redirect()->back()->with('success', 'Withdrawal rejected. Funds returned to user wallet.');
     }

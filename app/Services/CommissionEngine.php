@@ -186,14 +186,16 @@ class CommissionEngine
                             ->where('user_id', $currentParent->id)
                             ->increment('total_matching_bonus', $bonusAmount);
 
+                        // Only set carry_forward, don't duplicate into left_volume/right_volume
+                        // The volume columns accumulate new volume; carry_forward holds the unmatched remainder
                         DB::table('binary_tree')
                             ->where('user_id', $currentParent->id)
                             ->update([
-                                'left_volume'       => max(0, $leftVolume - $weakVolume),
-                                'right_volume'      => max(0, $rightVolume - $weakVolume),
+                                'left_volume'         => 0,
+                                'right_volume'        => 0,
                                 'left_carry_forward'  => max(0, $leftVolume - $weakVolume),
                                 'right_carry_forward' => max(0, $rightVolume - $weakVolume),
-                                'last_matched_at'    => now(),
+                                'last_matched_at'     => now(),
                             ]);
 
                         $totalPaid += $bonusAmount;

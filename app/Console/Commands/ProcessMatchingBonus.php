@@ -51,6 +51,16 @@ class ProcessMatchingBonus extends Command
         $skipped = 0;
 
         foreach ($users as $user) {
+            // Skip if already received matching bonus today
+            $alreadyPaid = MatchingBonus::where('user_id', $user->id)
+                ->whereDate('created_at', $today)
+                ->where('status', 'paid')
+                ->exists();
+            if ($alreadyPaid) {
+                $skipped++;
+                continue;
+            }
+
             // Get the user's rank matching rate
             $rank = Rank::find($user->rank_id);
             if (!$rank) {
@@ -96,20 +106,20 @@ class ProcessMatchingBonus extends Command
             DB::transaction(function () use ($user, $bonus, $matchRate, $leftVolume, $rightVolume, $cappedVolume, $rank, $today, &$processed, &$totalPaid) {
                 // Create matching bonus record
                 MatchingBonus::create([
-                    'user_id'      => $user->id,
-                    'left_volume'  => $leftVolume,
-                    'right_volume' => $rightVolume,
-                    'match_volume' => $cappedVolume,
-                    'match_rate'   => $matchRate,
-                    'bonus_amount' => $bonus,
-                    'rank_id'      => $rank->id,
-                    'cycle_date'   => $today,
-                    'status'       => 'paid',
+                    'user_id'              => $user->id,
+                    'left_volume'          => $leftVolume,
+                    'right_volume'         => $rightVolume,
+                    'matched_volume'       => $cappedVolume,
+                    'bonus_percent'        => $matchRate,
+                    'bonus_amount'         => $bonus,
+                    'carry_forward_left'   => max(0, $leftVolume - $cappedVolume),
+                    'carry_forward_right'  => max(0, $rightVolume - $cappedVolume),
+                    'status'               => 'paid',
                 ]);
 
                 // Credit user's matching wallet
                 $wallet = Wallet::firstOrCreate(
-                    ['user_id' => $user->id, 'type' => 'matching'],
+                    ['user_id' => $user->id, 'type' => 'bonus'],
                     ['balance' => 0, 'currency' => 'USD']
                 );
                 $wallet->increment('balance', $bonus);
@@ -177,18 +187,13 @@ class ProcessMatchingBonus extends Command
             return 0;
         }
 
-        // Sum their deposits (approved) + investments (active/completed)
-        $depositVolume = DB::table('deposits')
-            ->whereIn('user_id', $descendants)
-            ->where('status', 'approved')
-            ->sum('amount');
-
+        // Sum only investments (deposits fund investments, counting both = double counting)
         $investmentVolume = DB::table('investments')
             ->whereIn('user_id', $descendants)
             ->whereIn('status', ['active', 'completed'])
             ->sum('amount');
 
-        return (float) ($depositVolume + $investmentVolume);
+        return (float) $investmentVolume;
     }
 
     /**

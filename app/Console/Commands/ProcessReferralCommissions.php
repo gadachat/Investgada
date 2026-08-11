@@ -92,21 +92,24 @@ class ProcessReferralCommissions extends Command
             DB::transaction(function () use ($deposit, $sponsor, $commission, $commissionRate, $netAmount, $user, &$processed, &$totalPaid) {
                 // Credit sponsor's referral wallet
                 $wallet = Wallet::firstOrCreate(
-                    ['user_id' => $sponsor->id, 'type' => 'referral'],
+                    ['user_id' => $sponsor->id, 'type' => 'commission'],
                     ['balance' => 0, 'currency' => 'USD']
                 );
                 $wallet->increment('balance', $commission);
 
                 // Record transaction
                 Transaction::create([
-                    'user_id'    => $sponsor->id,
-                    'type'       => 'referral_commission',
-                    'amount'     => $commission,
-                    'wallet_type'=> 'referral',
-                    'status'     => 'completed',
-                    'reference'  => 'REF-' . $deposit->id . '-' . $sponsor->id,
-                    'description'=> "Direct referral commission from {$user->name}'s deposit of \${$netAmount}",
-                    'metadata'   => json_encode([
+                    'user_id'       => $sponsor->id,
+                    'wallet_id'     => $wallet->id,
+                    'type'          => 'referral_commission',
+                    'direction'     => 'credit',
+                    'amount'        => $commission,
+                    'balance_after' => $wallet->fresh()->balance,
+                    'currency'      => 'USD',
+                    'status'        => 'completed',
+                    'reference'     => 'REF-' . $deposit->id . '-' . $sponsor->id,
+                    'description'   => "Direct referral commission from {$user->name}'s deposit of \${$netAmount}",
+                    'metadata'      => json_encode([
                         'deposit_id'   => $deposit->id,
                         'referred_user' => $user->name,
                         'deposit_amount'=> $netAmount,
