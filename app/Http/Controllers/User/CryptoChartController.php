@@ -129,4 +129,59 @@ class CryptoChartController extends Controller
             'time'   => now()->timestamp * 1000,
         ]);
     }
+
+    /**
+     * API endpoint: Get chart data for a specific symbol (path param version).
+     * Used by /api/crypto/chart/{symbol}
+     */
+    public function chart(Request $request, string $symbol = 'BTC')
+    {
+        $request->merge(['symbol' => strtoupper($symbol)]);
+        return $this->feed($request);
+    }
+
+    /**
+     * API endpoint: Get current prices for all tracked symbols.
+     * Used by /api/crypto/prices
+     */
+    public function prices(Request $request)
+    {
+        $symbols = [
+            'BTC'  => ['name' => 'Bitcoin',    'base' => 0,   'vol' => 0.012],
+            'ETH'  => ['name' => 'Ethereum',   'base' => 0,    'vol' => 0.018],
+            'BNB'  => ['name' => 'BNB',         'base' => 0,    'vol' => 0.015],
+            'SOL'  => ['name' => 'Solana',     'base' => 0,    'vol' => 0.025],
+            'XRP'  => ['name' => 'Ripple',     'base' => 0,    'vol' => 0.020],
+            'ADA'  => ['name' => 'Cardano',    'base' => 0,    'vol' => 0.022],
+            'AVAX' => ['name' => 'Avalanche',  'base' => 0,   'vol' => 0.028],
+            'DOT'  => ['name' => 'Polkadot',   'base' => 0,    'vol' => 0.024],
+            'LINK' => ['name' => 'Chainlink',  'base' => 0,   'vol' => 0.026],
+            'DOGE' => ['name' => 'Dogecoin',   'base' => 0,    'vol' => 0.030],
+        ];
+
+        $prices = [];
+        foreach ($symbols as $sym => $meta) {
+            $base = $meta['base'];
+            $volatility = $meta['vol'];
+            $precision = $base < 1 ? 4 : 2;
+
+            $change = (mt_rand(-1000, 1000) / 1000) * $volatility * $base;
+            $price = round($base + $change, $precision);
+            $changePct = round(($change / max($base, 1)) * 100, 2);
+
+            $prices[$sym] = [
+                'symbol'     => $sym,
+                'name'       => $meta['name'],
+                'price'      => $price,
+                'change_pct'  => $changePct,
+                'trend'      => $changePct >= 0 ? 'up' : 'down',
+            ];
+        }
+
+        return response()->json([
+            'success' => true,
+            'prices'  => $prices,
+            'time'    => now()->timestamp * 1000,
+        ]);
+    }
 }
